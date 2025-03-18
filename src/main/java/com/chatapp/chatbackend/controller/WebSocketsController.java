@@ -1,8 +1,11 @@
 package com.chatapp.chatbackend.controller;
 
 import com.chatapp.chatbackend.model.ChatMessage;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.handler.annotation.SendTo;
@@ -16,20 +19,23 @@ import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.UUID;
 
-//@CrossOrigin(origins = "http://localhost:5173")
 @Controller
 public class WebSocketsController {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
     private static final String CHAT_HISTORY_KEY = "chat:messages";
 
     // URL used to invoke this method is defined in this annotation
     // and it send that message to the topic of message broker
     @MessageMapping("/chat.sendMessage")
-    @SendTo("/topic/public")
-    public ChatMessage sendMessage(@Payload ChatMessage chatMessage){
+    //Removed SendTo as we are subscribing to websockets
+//    @SendTo("/topic/public")
+    public ChatMessage sendMessage(@Payload ChatMessage chatMessage) throws JsonProcessingException {
         System.out.println("chatMessage "+chatMessage.toString());
 
         // Add extra details (ID & Timestamp)
@@ -39,8 +45,16 @@ public class WebSocketsController {
         String timestamp = new Date().toString();
         chatMessage.setTimestamp(timestamp);
 
-        // Store the message in Redis
-        redisTemplate.opsForList().rightPush(CHAT_HISTORY_KEY, chatMessage);
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            String messageJson = objectMapper.writeValueAsString(chatMessage);
+            stringRedisTemplate.convertAndSend("chat:channel", messageJson);
+
+            // Store the message in Redis
+            redisTemplate.opsForList().rightPush(CHAT_HISTORY_KEY, messageJson);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
 
         return chatMessage;
    }
